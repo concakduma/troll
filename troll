@@ -1,7 +1,6 @@
 -- Dịch vụ Roblox
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 -- Người chơi cục bộ và các biến trạng thái
 local localPlayer = Players.LocalPlayer
@@ -12,19 +11,22 @@ local targetPlayer = nil
 local isActivated = false
 local isFollowing = false
 local isFlying = false
-local flyForce = nil
+-- =======================================================================
+-- PHẦN THAY ĐỔI QUAN TRỌNG
+-- Bỏ biến 'flyForce' và thêm 'flyConnection' để quản lý vòng lặp bay
+-- =======================================================================
 local followConnection = nil
+local flyConnection = nil
+local flySpeed = 50000 -- Tốc độ bay cực nhanh, bạn có thể tăng thêm nếu muốn. 
+                       -- Số quá lớn có thể khiến nhân vật bay vượt qua cả giới hạn của map trong 1 frame.
 
 -- =======================================================================
--- TẠO GIAO DIỆN (GUI)
--- Script sẽ tự tạo tất cả các thành phần này khi vào game
+-- TẠO GIAO DIỆN (GUI) - (Phần này giữ nguyên)
 -- =======================================================================
-
--- Tạo ScreenGui chính
 local trollGui = Instance.new("ScreenGui")
 trollGui.Name = "TrollGui"
 trollGui.Parent = localPlayer:WaitForChild("PlayerGui")
-
+-- ... (Toàn bộ code tạo GUI từ trước vẫn giữ nguyên, tôi sẽ rút gọn ở đây cho dễ nhìn)
 -- Tạo khung chính
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
@@ -92,6 +94,10 @@ uiListLayout.Padding = UDim.new(0, 5)
 uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 uiListLayout.Parent = playerListFrame
 
+uiListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	playerListFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y)
+end)
+
 -- Nút Bật/Tắt
 local toggleButton = Instance.new("TextButton")
 toggleButton.Name = "ToggleButton"
@@ -104,19 +110,18 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 18
 toggleButton.Parent = contentFrame
 
+
 -- =======================================================================
 -- LOGIC CỦA SCRIPT
 -- =======================================================================
 
--- Hàm cập nhật danh sách người chơi
+-- Hàm cập nhật danh sách người chơi (giữ nguyên)
 function updatePlayerList()
-	playerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 	for _, child in ipairs(playerListFrame:GetChildren()) do
 		if child:IsA("TextButton") then
 			child:Destroy()
 		end
 	end
-
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= localPlayer then
 			local playerButton = Instance.new("TextButton")
@@ -138,56 +143,77 @@ function updatePlayerList()
 	end
 end
 
--- Hàm dừng mọi hoạt động
+-- =======================================================================
+-- PHẦN THAY ĐỔI QUAN TRỌNG: Nâng cấp hàm stopEverything
+-- =======================================================================
 function stopEverything()
 	isFollowing = false
 	isFlying = false
 	
-	-- Ngắt kết nối vòng lặp theo dõi
 	if followConnection then
 		followConnection:Disconnect()
 		followConnection = nil
 	end
 
-	-- Xóa lực bay
-	if flyForce then
-		flyForce:Destroy()
-		flyForce = nil
+	-- Ngắt kết nối vòng lặp bay
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
 	end
 
-	-- Tìm người chơi tên "nam" để dịch chuyển đến
 	for _, player in ipairs(Players:GetPlayers()) do
 		if string.find(player.Name:lower(), "nam") then
 			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 				print("Đã tìm thấy " .. player.Name .. ". Dịch chuyển về!")
 				humanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 5, 5)
-				break -- Dừng lại sau khi tìm thấy người đầu tiên
+				break 
 			end
 		end
 	end
 end
 
--- Hàm bắt đầu bay
+-- =======================================================================
+-- PHẦN THAY ĐỔI QUAN TRỌNG: Nâng cấp hàm startFlying
+-- =======================================================================
 function startFlying()
 	if not isActivated or not targetPlayer or isFlying then return end
 	
 	print("Phát hiện Tool ghế! Chuẩn bị bay...")
 	isFlying = true
-	task.wait(0.2) -- Đợi 0.2 giây như yêu cầu
+	task.wait(0.2) 
 
-	if not isActivated then -- Kiểm tra lại phòng trường hợp người dùng đã tắt trong 0.2s
+	if not isActivated then
 		isFlying = false
 		return 
 	end
 
 	print("Cất cánh!")
-	flyForce = Instance.new("BodyVelocity")
-	flyForce.MaxForce = Vector3.new(0, math.huge, 0)
-	flyForce.Velocity = Vector3.new(0, 999999, 0) -- Tốc độ bay lên trời
-	flyForce.Parent = humanoidRootPart
+	
+	-- Ngắt kết nối theo dõi để nhân vật không bị giật lại phía sau mục tiêu
+	if followConnection then
+		followConnection:Disconnect()
+		followConnection = nil
+		isFollowing = false
+	end
+
+	-- Tạo vòng lặp bay bằng CFrame
+	flyConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		-- Kiểm tra xem có cần dừng bay không
+		if not isFlying or not humanoidRootPart or not humanoidRootPart.Parent then
+			if flyConnection then
+				flyConnection:Disconnect()
+				flyConnection = nil
+			end
+			return
+		end
+
+		-- Di chuyển nhân vật lên trên bằng cách thay đổi trực tiếp CFrame
+		local flyVector = Vector3.new(0, flySpeed * deltaTime, 0)
+		humanoidRootPart.CFrame = humanoidRootPart.CFrame + flyVector
+	end)
 end
 
--- Hàm kích hoạt/hủy chức năng chính
+-- Các sự kiện (giữ nguyên không đổi)
 toggleButton.MouseButton1Click:Connect(function()
 	if not targetPlayer then
 		warn("Vui lòng chọn một người chơi trước!")
@@ -200,7 +226,6 @@ toggleButton.MouseButton1Click:Connect(function()
 		toggleButton.Text = "on"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
 		
-		-- Bắt đầu theo dõi
 		isFollowing = true
 		followConnection = RunService.Heartbeat:Connect(function()
 			if not isFollowing or not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
@@ -215,7 +240,6 @@ toggleButton.MouseButton1Click:Connect(function()
 			end
 			
 			local targetRootPart = targetPlayer.Character.HumanoidRootPart
-			-- Luôn giữ khoảng cách phía sau mục tiêu
 			humanoidRootPart.CFrame = targetRootPart.CFrame * CFrame.new(0, 0, 5) 
 		end)
 		
@@ -226,7 +250,6 @@ toggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Sự kiện khi nhấp vào nút chọn người chơi
 playerSelectButton.MouseButton1Click:Connect(function()
 	playerListFrame.Visible = not playerListFrame.Visible
 	if playerListFrame.Visible then
@@ -234,7 +257,6 @@ playerSelectButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Sự kiện thu nhỏ/mở rộng GUI
 local isMinimized = false
 minimizeButton.MouseButton1Click:Connect(function()
 	isMinimized = not isMinimized
@@ -246,14 +268,12 @@ minimizeButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Sự kiện phát hiện khi người chơi cầm Tool
 character.ChildAdded:Connect(function(child)
 	if child:IsA("Tool") and child.Name == "Chair" and isActivated then
 		startFlying()
 	end
 end)
 
--- Cập nhật danh sách người chơi khi có người mới vào/ra
 Players.PlayerAdded:Connect(updatePlayerList)
 Players.PlayerRemoving:Connect(function(player)
 	if player == targetPlayer then
@@ -268,12 +288,10 @@ Players.PlayerRemoving:Connect(function(player)
 	updatePlayerList()
 end)
 
--- Cập nhật lại biến character khi người chơi reset
 localPlayer.CharacterAdded:Connect(function(newChar)
     character = newChar
     humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
 
-    -- Kết nối lại sự kiện phát hiện Tool cho nhân vật mới
     newChar.ChildAdded:Connect(function(child)
         if child:IsA("Tool") and child.Name == "Chair" and isActivated then
             startFlying()
@@ -281,4 +299,4 @@ localPlayer.CharacterAdded:Connect(function(newChar)
     end)
 end)
 
-print("Script giam giữ đã được tải!")
+print("Script giam giữ phiên bản Tên Lửa đã được tải!")
