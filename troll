@@ -1,284 +1,251 @@
--- Dịch vụ Roblox
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+--!strict
+--------------------------------------------------------------------
+--  Giam Giữ Script  (đặt trong StarterPlayerScripts)
+--------------------------------------------------------------------
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local localPlr     = Players.LocalPlayer
 
--- Người chơi cục bộ và các biến trạng thái
-local localPlayer = Players.LocalPlayer
-local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+--------------------------------------------------------------------
+-- 1. Tạo GUI
+--------------------------------------------------------------------
+local function createGui()
+    local gui            = Instance.new("ScreenGui")
+    gui.Name             = "GiamGiuGui"
+    gui.ResetOnSpawn     = false
+    gui.Parent           = localPlr:WaitForChild("PlayerGui")
 
--- Biến cho chức năng
-local targetPlayer = nil
-local isActivated = false
-local isFollowing = false
-local followConnection = nil
+    local frame          = Instance.new("Frame")
+    frame.Size           = UDim2.new(0,220,0,160)
+    frame.Position       = UDim2.new(0,10,0,150)
+    frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    frame.BorderSizePixel  = 0
+    frame.Parent         = gui
 
--- =======================================================================
--- BIẾN MỚI CHO SỨC MẠNH CÚ NHẢY
--- =======================================================================
-local originalJumpPower = humanoid.JumpPower -- Lưu lại JumpPower gốc (thường là 50)
-local jumpMultiplier = 1 -- Hệ số nhân sức mạnh, bắt đầu từ 1
+    local title          = Instance.new("TextLabel")
+    title.Size           = UDim2.new(1,-25,0,30)
+    title.BackgroundTransparency = 1
+    title.Font           = Enum.Font.GothamBold
+    title.TextSize       = 20
+    title.TextColor3     = Color3.new(1,1,1)
+    title.Text           = "giam giữ"
+    title.Parent         = frame
 
+    local minimize       = Instance.new("TextButton")
+    minimize.Size        = UDim2.new(0,25,0,25)
+    minimize.Position    = UDim2.new(1,-25,0,0)
+    minimize.Text        = "-"
+    minimize.TextScaled  = true
+    minimize.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    minimize.Parent      = frame
 
--- =======================================================================
--- TẠO GIAO DIỆN (GUI) - (Đã cập nhật)
--- =======================================================================
-local trollGui = Instance.new("ScreenGui")
-trollGui.Name = "TrollGui"
-trollGui.Parent = localPlayer:WaitForChild("PlayerGui")
-trollGui.ResetOnSpawn = false
+    local enterBtn       = Instance.new("TextButton")
+    enterBtn.Name        = "EnterBtn"
+    enterBtn.Size        = UDim2.new(1,-20,0,35)
+    enterBtn.Position    = UDim2.new(0,10,0,40)
+    enterBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    enterBtn.TextColor3  = Color3.new(1,1,1)
+    enterBtn.Font        = Enum.Font.Gotham
+    enterBtn.TextSize    = 18
+    enterBtn.Text        = "Enter name"
+    enterBtn.Parent      = frame
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 200, 0, 200) -- Tăng chiều cao để chứa thêm nút
-mainFrame.Position = UDim2.new(0, 10, 0.3, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
-mainFrame.Draggable = true
-mainFrame.Active = true
-mainFrame.Parent = trollGui
+    local scroll         = Instance.new("ScrollingFrame")
+    scroll.Size          = UDim2.new(1,-20,0,80)
+    scroll.Position      = UDim2.new(0,10,0,80)
+    scroll.ScrollBarThickness = 6
+    scroll.BackgroundColor3   = Color3.fromRGB(30,30,30)
+    scroll.Visible       = false
+    scroll.Parent        = frame
 
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Name = "Title"
-titleLabel.Size = UDim2.new(1, 0, 0, 30)
-titleLabel.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Text = "giam giữ"
-titleLabel.Font = Enum.Font.SourceSansBold
-titleLabel.TextSize = 18
-titleLabel.Parent = mainFrame
+    local toggleBtn      = Instance.new("TextButton")
+    toggleBtn.Name       = "ToggleBtn"
+    toggleBtn.Size       = UDim2.new(1,-20,0,35)
+    toggleBtn.Position   = UDim2.new(0,10,0,125)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(145,0,0)
+    toggleBtn.TextColor3 = Color3.new(1,1,1)
+    toggleBtn.Font       = Enum.Font.GothamBold
+    toggleBtn.TextSize   = 20
+    toggleBtn.Text       = "off"
+    toggleBtn.Parent     = frame
 
-local minimizeButton = Instance.new("TextButton")
-minimizeButton.Name = "MinimizeButton"
-minimizeButton.Size = UDim2.new(0, 25, 0, 25)
-minimizeButton.Position = UDim2.new(1, -28, 0, 3)
-minimizeButton.BackgroundColor3 = Color3.fromRGB(85, 85, 85)
-minimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-minimizeButton.Text = "-"
-minimizeButton.Font = Enum.Font.SourceSansBold
-minimizeButton.TextSize = 24
-minimizeButton.Parent = titleLabel
-
-local contentFrame = Instance.new("Frame")
-contentFrame.Name = "ContentFrame"
-contentFrame.Size = UDim2.new(1, 0, 1, -30)
-contentFrame.Position = UDim2.new(0, 0, 0, 30)
-contentFrame.BackgroundTransparency = 1
-contentFrame.Parent = mainFrame
-
--- Các nút cũ
-local playerSelectButton = Instance.new("TextButton")
-playerSelectButton.Name = "PlayerSelectButton"
-playerSelectButton.Size = UDim2.new(0, 180, 0, 40)
-playerSelectButton.Position = UDim2.new(0.5, -90, 0, 10)
-playerSelectButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-playerSelectButton.Text = "Enter name"
-playerSelectButton.Parent = contentFrame
-
-local playerListFrame = Instance.new("ScrollingFrame")
--- ... (code player list giữ nguyên) ...
-playerListFrame.Name = "PlayerList"
-playerListFrame.Size = UDim2.new(0, 180, 0, 150)
-playerListFrame.Position = playerSelectButton.Position + UDim2.new(0, 0, 0, 40)
-playerListFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-playerListFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
-playerListFrame.Visible = false
-playerListFrame.Parent = contentFrame
-local uiListLayout = Instance.new("UIListLayout")
-uiListLayout.Padding = UDim.new(0, 5)
-uiListLayout.Parent = playerListFrame
-uiListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-	playerListFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y)
-end)
-
-local toggleButton = Instance.new("TextButton")
-toggleButton.Name = "ToggleButton"
-toggleButton.Size = UDim2.new(0, 180, 0, 40)
-toggleButton.Position = UDim2.new(0.5, -90, 0, 60)
-toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-toggleButton.Text = "off"
-toggleButton.Parent = contentFrame
-
--- =======================================================================
--- GIAO DIỆN MỚI CHO JUMP POWER
--- =======================================================================
-local powerFrame = Instance.new("Frame")
-powerFrame.Size = UDim2.new(1, 0, 0, 40)
-powerFrame.Position = UDim2.new(0, 0, 0, 110)
-powerFrame.BackgroundTransparency = 1
-powerFrame.Parent = contentFrame
-
-local minusButton = Instance.new("TextButton")
-minusButton.Name = "MinusButton"
-minusButton.Size = UDim2.new(0, 50, 1, 0)
-minusButton.Position = UDim2.new(0, 10, 0, 0)
-minusButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
-minusButton.Text = "-"
-minusButton.Font = Enum.Font.SourceSansBold
-minusButton.TextSize = 24
-minusButton.Parent = powerFrame
-
-local powerDisplay = Instance.new("TextLabel")
-powerDisplay.Name = "PowerDisplay"
-powerDisplay.Size = UDim2.new(1, -120, 1, 0)
-powerDisplay.Position = UDim2.new(0, 60, 0, 0)
-powerDisplay.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-powerDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
-powerDisplay.Text = "x" .. jumpMultiplier
-powerDisplay.Font = Enum.Font.SourceSansBold
-powerDisplay.TextSize = 18
-powerDisplay.Parent = powerFrame
-
-local plusButton = Instance.new("TextButton")
-plusButton.Name = "PlusButton"
-plusButton.Size = UDim2.new(0, 50, 1, 0)
-plusButton.Position = UDim2.new(1, -60, 0, 0)
-plusButton.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
-plusButton.Text = "+"
-plusButton.Font = Enum.Font.SourceSansBold
-plusButton.TextSize = 24
-plusButton.Parent = powerFrame
-
-
--- =======================================================================
--- LOGIC CỦA SCRIPT (ĐÃ THAY ĐỔI)
--- =======================================================================
-
-function updatePlayerList()
-	-- (Code này giữ nguyên)
-	for _, child in ipairs(playerListFrame:GetChildren()) do
-		if child:IsA("TextButton") then child:Destroy() end
-	end
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= localPlayer then
-			local b = Instance.new("TextButton", playerListFrame)
-			b.Name = player.Name; b.Text = player.Name; b.Size = UDim2.new(1, -10, 0, 30);
-			b.MouseButton1Click:Connect(function()
-				targetPlayer = player; playerSelectButton.Text = player.Name; playerListFrame.Visible = false;
-			end)
-		end
-	end
+    return {
+        frame     = frame,
+        minimize  = minimize,
+        enterBtn  = enterBtn,
+        scroll    = scroll,
+        toggleBtn = toggleBtn
+    }
 end
 
--- Hàm cập nhật JumpPower
-function updateJumpPower()
-	powerDisplay.Text = "x" .. jumpMultiplier
-	if isActivated then
-		humanoid.JumpPower = originalJumpPower * jumpMultiplier
-	end
+local ui           = createGui()
+local CHOSEN_NAME  = nil
+local IS_ON        = false
+local FOLLOW_CON   = nil
+local ASCEND_FORCE = nil
+
+--------------------------------------------------------------------
+-- 2. Danh sách người chơi
+--------------------------------------------------------------------
+local function refreshList()
+    ui.scroll:ClearAllChildren()
+    local y = 0
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= localPlr then
+            local b       = Instance.new("TextButton")
+            b.Size        = UDim2.new(1,-6,0,25)
+            b.Position    = UDim2.new(0,3,0,y)
+            b.BackgroundColor3 = Color3.fromRGB(50,50,50)
+            b.Font        = Enum.Font.Gotham
+            b.TextSize    = 16
+            b.TextColor3  = Color3.new(1,1,1)
+            b.Text        = plr.Name
+            b.Parent      = ui.scroll
+            y = y + 27
+
+            b.MouseButton1Click:Connect(function()
+                CHOSEN_NAME      = plr.Name
+                ui.enterBtn.Text = plr.Name
+                ui.scroll.Visible= false
+            end)
+        end
+    end
+    ui.scroll.CanvasSize = UDim2.new(0,0,0,y)
+end
+Players.PlayerAdded:Connect(refreshList)
+Players.PlayerRemoving:Connect(refreshList)
+refreshList()
+
+--------------------------------------------------------------------
+-- 3. Hàm hỗ trợ
+--------------------------------------------------------------------
+local function startFollow()
+    if FOLLOW_CON or not CHOSEN_NAME then return end
+    local target = Players:FindFirstChild(CHOSEN_NAME)
+    if not target or not target.Character then return end
+
+    FOLLOW_CON = RunService.RenderStepped:Connect(function()
+        local tChar = target.Character
+        local lChar = localPlr.Character
+        if tChar and lChar and tChar:FindFirstChild("HumanoidRootPart") and lChar:FindFirstChild("HumanoidRootPart") then
+            local behind = tChar.HumanoidRootPart.CFrame * CFrame.new(0,0,5)
+            lChar.HumanoidRootPart.CFrame = CFrame.new(behind.Position, tChar.HumanoidRootPart.Position)
+        end
+    end)
 end
 
--- Hàm dừng mọi hoạt động
-function stopEverything()
-	isFollowing = false
-	if followConnection then
-		followConnection:Disconnect()
-		followConnection = nil
-	end
-	
-	-- Trả JumpPower về bình thường
-	if humanoid then
-		humanoid.JumpPower = originalJumpPower
-	end
-
-	-- Teleport về người tên "nam"
-	for _, player in ipairs(Players:GetPlayers()) do
-		if string.find(player.Name:lower(), "nam") then
-			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-				humanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 5, 5)
-				break 
-			end
-		end
-	end
+local function stopFollow()
+    if FOLLOW_CON then
+        FOLLOW_CON:Disconnect()
+        FOLLOW_CON = nil
+    end
 end
 
--- Sự kiện cho các nút +, -
-plusButton.MouseButton1Click:Connect(function()
-	if jumpMultiplier == 1 then
-		jumpMultiplier = 100 -- Nhảy bậc cho vui
-	else
-		jumpMultiplier = jumpMultiplier * 10
-	end
-	updateJumpPower()
+local function seatTarget(tool:Tool, targetPlr:Player)
+    if not tool or not tool:IsA("Tool") then return end
+    local seat = tool:FindFirstChildWhichIsA("Seat", true)
+    if not seat and (tool.Name:lower():find("seat") or tool.Name:lower():find("chair")) then
+        seat = Instance.new("Seat")
+        seat.Transparency = 1
+        seat.Parent = tool
+    end
+    if seat and targetPlr.Character and targetPlr.Character:FindFirstChild("Humanoid") then
+        seat:Sit(targetPlr.Character.Humanoid)
+    end
+end
+
+local function startAscend()
+    local root = localPlr.Character and localPlr.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    ASCEND_FORCE           = Instance.new("BodyVelocity")
+    ASCEND_FORCE.MaxForce  = Vector3.new(0, math.huge, 0)
+    ASCEND_FORCE.Velocity  = Vector3.new(0, 999_999_999, 0)
+    ASCEND_FORCE.Parent    = root
+end
+
+local function stopAscend()
+    if ASCEND_FORCE then
+        ASCEND_FORCE:Destroy()
+        ASCEND_FORCE = nil
+    end
+end
+
+local function tpToNam()
+    for _,p in ipairs(Players:GetPlayers()) do
+        if p ~= localPlr and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            if p.Name:lower():find("nam") then
+                local root = localPlr.Character and localPlr.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.CFrame = p.Character.HumanoidRootPart.CFrame + Vector3.new(0,2,0)
+                end
+                break
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------
+-- 4. Sự kiện GUI
+--------------------------------------------------------------------
+ui.enterBtn.MouseButton1Click:Connect(function()
+    ui.scroll.Visible = not ui.scroll.Visible
 end)
 
-minusButton.MouseButton1Click:Connect(function()
-	if jumpMultiplier > 100 then
-		jumpMultiplier = jumpMultiplier / 10
-	else
-		jumpMultiplier = 1 -- Về mức 1
-	end
-	updateJumpPower()
+ui.toggleBtn.MouseButton1Click:Connect(function()
+    IS_ON = not IS_ON
+    ui.toggleBtn.Text              = IS_ON and "on" or "off"
+    ui.toggleBtn.BackgroundColor3  = IS_ON and Color3.fromRGB(0,145,0) or Color3.fromRGB(145,0,0)
+    if IS_ON then
+        startFollow()
+    else
+        stopFollow()
+        stopAscend()
+        tpToNam()
+    end
 end)
 
--- Sự kiện bật/tắt chính
-toggleButton.MouseButton1Click:Connect(function()
-	if not targetPlayer then
-		warn("Vui lòng chọn một người chơi trước!")
-		return
-	end
-	
-	isActivated = not isActivated
-	
-	if isActivated then
-		toggleButton.Text = "on"
-		toggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
-		
-		-- Kích hoạt JumpPower và theo dõi
-		humanoid.JumpPower = originalJumpPower * jumpMultiplier
-		isFollowing = true
-		followConnection = RunService.Heartbeat:Connect(function()
-			if not isFollowing or not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-				-- Tự động tắt nếu mục tiêu thoát
-				toggleButton.Text = "off"
-				toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-				stopEverything()
-				isActivated = false
-				targetPlayer = nil
-				playerSelectButton.Text = "Enter name"
-				return
-			end
-			
-			local targetRootPart = targetPlayer.Character.HumanoidRootPart
-			humanoidRootPart.CFrame = targetRootPart.CFrame * CFrame.new(0, 0, 2.5) 
-		end)
-		
-	else
-		toggleButton.Text = "off"
-		toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-		stopEverything()
-	end
+local collapsed = false
+ui.minimize.MouseButton1Click:Connect(function()
+    collapsed = not collapsed
+    for _,obj in ipairs(ui.frame:GetChildren()) do
+        if obj ~= ui.minimize then
+            obj.Visible = not collapsed
+        end
+    end
+    ui.frame.Size = collapsed and UDim2.new(0,40,0,30) or UDim2.new(0,220,0,160)
 end)
 
--- Các sự kiện phụ khác (giữ nguyên)
-playerSelectButton.MouseButton1Click:Connect(function()
-	playerListFrame.Visible = not playerListFrame.Visible
-	if playerListFrame.Visible then updatePlayerList() end
-end)
+--------------------------------------------------------------------
+-- 5. Xử lý Tool / bay
+--------------------------------------------------------------------
+local function onEquipped(tool:Tool)
+    if not IS_ON or not CHOSEN_NAME then return end
+    local target = Players:FindFirstChild(CHOSEN_NAME)
+    if not target then return end
+    task.wait(0.2)
+    seatTarget(tool, target)
+    startAscend()
+end
 
-local isMinimized = false
-minimizeButton.MouseButton1Click:Connect(function()
-	isMinimized = not isMinimized
-	contentFrame.Visible = not isMinimized
-	if isMinimized then mainFrame.Size = UDim2.new(0, 200, 0, 30)
-	else mainFrame.Size = UDim2.new(0, 200, 0, 200) end
-end)
+local function hookCharacter(char:Model)
+    for _,child in ipairs(char:GetChildren()) do
+        if child:IsA("Tool") then
+            child.Equipped:Connect(onEquipped)
+        end
+    end
+    char.ChildAdded:Connect(function(c)
+        if c:IsA("Tool") then
+            c.Equipped:Connect(onEquipped)
+        end
+    end)
+end
 
--- Xử lý khi người chơi reset
-localPlayer.CharacterAdded:Connect(function(newChar)
-    character = newChar
-    humanoid = newChar:WaitForChild("Humanoid")
-    humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
-	originalJumpPower = humanoid.JumpPower -- Lấy lại JumpPower gốc
-	
-	-- Reset lại mọi thứ
-	isActivated = false
-	if followConnection then followConnection:Disconnect() end
-	toggleButton.Text = "off"
-	toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-	playerSelectButton.Text = "Enter name"
-	targetPlayer = nil
-end)
+if localPlr.Character then
+    hookCharacter(localPlr.Character)
+end
+localPlr.CharacterAdded:Connect(hookCharacter)
 
-print("Script giam giữ phiên bản Siêu Nhảy đã được tải!")
+--------------------------------------------------------------------
+-- 6. Bảo đảm rơi tự do không bị huỷ part
+--------------------------------------------------------------------
+workspace.FallenPartsDestroyHeight = -1e9
