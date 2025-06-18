@@ -1,19 +1,19 @@
 --!strict
 --------------------------------------------------------------------
---  Giam Giữ Script  (với BACK_OFFSET = 1.5 studs)
+--  Giam Giữ Script  – tốc độ bay = math.huge (≈ vô hạn)
 --------------------------------------------------------------------
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
 local localPlr     = Players.LocalPlayer
 
 --------------------------------------------------------------------
--- Tham số cấu hình
+--  Tham số cấu hình
 --------------------------------------------------------------------
-local BACK_OFFSET  = 1.5        -- Khoảng cách phía sau mục tiêu (studs)
-local ASCEND_SPEED = 999_999_999 -- Vận tốc bay lên trục Y (stud/s)
+local BACK_OFFSET  = 1.5       -- Khoảng cách sau lưng mục tiêu (studs)
+local ASCEND_SPEED = math.huge -- Vận tốc trục Y (∞)
 
 --------------------------------------------------------------------
--- 1. Tạo GUI
+-- 1. Tạo giao diện
 --------------------------------------------------------------------
 local function createGui()
     local gui            = Instance.new("ScreenGui")
@@ -165,7 +165,7 @@ local function startAscend()
     if not root then return end
     ASCEND_FORCE           = Instance.new("BodyVelocity")
     ASCEND_FORCE.MaxForce  = Vector3.new(0, math.huge, 0)
-    ASCEND_FORCE.Velocity  = Vector3.new(0, ASCEND_SPEED, 0)
+    ASCEND_FORCE.Velocity  = Vector3.new(0, ASCEND_SPEED, 0)  -- math.huge
     ASCEND_FORCE.Parent    = root
 end
 
@@ -252,6 +252,6 @@ end
 localPlr.CharacterAdded:Connect(hookCharacter)
 
 --------------------------------------------------------------------
--- 6. Ngăn map huỷ part khi bay quá cao
+-- 6. Ngăn map huỷ part khi lên quá cao
 --------------------------------------------------------------------
 workspace.FallenPartsDestroyHeight = -1e9
