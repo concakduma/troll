@@ -1,10 +1,16 @@
 --!strict
 --------------------------------------------------------------------
---  Giam Giữ Script  (đặt trong StarterPlayerScripts)
+--  Giam Giữ Script  (với BACK_OFFSET = 1.5 studs)
 --------------------------------------------------------------------
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
 local localPlr     = Players.LocalPlayer
+
+--------------------------------------------------------------------
+-- Tham số cấu hình
+--------------------------------------------------------------------
+local BACK_OFFSET  = 1.5        -- Khoảng cách phía sau mục tiêu (studs)
+local ASCEND_SPEED = 999_999_999 -- Vận tốc bay lên trục Y (stud/s)
 
 --------------------------------------------------------------------
 -- 1. Tạo GUI
@@ -128,7 +134,7 @@ local function startFollow()
         local tChar = target.Character
         local lChar = localPlr.Character
         if tChar and lChar and tChar:FindFirstChild("HumanoidRootPart") and lChar:FindFirstChild("HumanoidRootPart") then
-            local behind = tChar.HumanoidRootPart.CFrame * CFrame.new(0,0,5)
+            local behind = tChar.HumanoidRootPart.CFrame * CFrame.new(0, 0, BACK_OFFSET)
             lChar.HumanoidRootPart.CFrame = CFrame.new(behind.Position, tChar.HumanoidRootPart.Position)
         end
     end)
@@ -159,7 +165,7 @@ local function startAscend()
     if not root then return end
     ASCEND_FORCE           = Instance.new("BodyVelocity")
     ASCEND_FORCE.MaxForce  = Vector3.new(0, math.huge, 0)
-    ASCEND_FORCE.Velocity  = Vector3.new(0, 999_999_999, 0)
+    ASCEND_FORCE.Velocity  = Vector3.new(0, ASCEND_SPEED, 0)
     ASCEND_FORCE.Parent    = root
 end
 
@@ -246,6 +252,6 @@ end
 localPlr.CharacterAdded:Connect(hookCharacter)
 
 --------------------------------------------------------------------
--- 6. Bảo đảm rơi tự do không bị huỷ part
+-- 6. Ngăn map huỷ part khi bay quá cao
 --------------------------------------------------------------------
 workspace.FallenPartsDestroyHeight = -1e9
