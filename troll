@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 -- Người chơi cục bộ và các biến trạng thái
 local localPlayer = Players.LocalPlayer
 local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
 local targetPlayer = nil
@@ -12,21 +13,15 @@ local isActivated = false
 local isFollowing = false
 local isFlying = false
 local followConnection = nil
+local flyConnection = nil -- Sẽ dùng để quản lý vòng lặp bay mới
 
 -- =======================================================================
--- BIẾN MỚI DỰA THEO CODE CỦA BẠN
--- Chúng ta sẽ lưu lại BodyMovers để có thể xóa chúng khi cần
--- =======================================================================
-local bodyVelocity = nil
-local bodyGyro = nil
-
-
--- =======================================================================
--- TẠO GIAO DIỆN (GUI) - (Phần này giữ nguyên)
+-- TẠO GIAO DIỆN (GUI) - (Phần này giữ nguyên, không cần thay đổi)
 -- =======================================================================
 local trollGui = Instance.new("ScreenGui")
 trollGui.Name = "TrollGui"
 trollGui.Parent = localPlayer:WaitForChild("PlayerGui")
+trollGui.ResetOnSpawn = false
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
@@ -34,7 +29,7 @@ mainFrame.Size = UDim2.new(0, 200, 0, 150)
 mainFrame.Position = UDim2.new(0, 10, 0.3, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
-mainFrame.Draggable = true -- Thêm cho dễ di chuyển
+mainFrame.Draggable = true
 mainFrame.Active = true
 mainFrame.Parent = trollGui
 
@@ -149,26 +144,21 @@ function stopEverything()
 		followConnection = nil
 	end
 
-	-- Hủy BodyMovers khi tắt
-	if bodyVelocity then
-		bodyVelocity:Destroy()
-		bodyVelocity = nil
-	end
-	if bodyGyro then
-		bodyGyro:Destroy()
-		bodyGyro = nil
+	-- Ngắt kết nối vòng lặp bay
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
 	end
 	
-	-- Cho phép nhân vật cử động lại bình thường
-	if character and character:FindFirstChildOfClass("Humanoid") then
-		character:FindFirstChildOfClass("Humanoid").PlatformStand = false
+	-- Trả lại trạng thái bình thường cho nhân vật
+	if humanoid then
+		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 	end
 
 	-- Tìm người chơi tên "nam" để dịch chuyển đến
 	for _, player in ipairs(Players:GetPlayers()) do
 		if string.find(player.Name:lower(), "nam") then
 			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-				print("Đã tìm thấy " .. player.Name .. ". Dịch chuyển về!")
 				humanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 5, 5)
 				break 
 			end
@@ -177,13 +167,12 @@ function stopEverything()
 end
 
 -- =======================================================================
--- HÀM BAY LÊN (ĐÃ NÂNG CẤP HOÀN TOÀN)
+-- PHẦN QUAN TRỌNG NHẤT: HÀM BAY ĐÃ ĐƯỢC THAY THẾ HOÀN TOÀN
 -- =======================================================================
 function startFlying()
 	if not isActivated or not targetPlayer or isFlying then return end
-	if not humanoidRootPart or not humanoidRootPart.Parent then return end
 	
-	print("Phát hiện Tool ghế! Chuẩn bị bay...")
+	print("Phát hiện Tool ghế! Chuẩn bị dịch chuyển...")
 	isFlying = true
 	task.wait(0.2) 
 
@@ -192,38 +181,36 @@ function startFlying()
 		return 
 	end
 
-	print("Cất cánh!")
+	print("3... 2... 1... BIẾN MẤT!")
 	
-	-- Ngừng theo dõi để không bị giật lại
+	-- Ngừng theo dõi ngay lập tức để không bị giật lại
 	if followConnection then
 		followConnection:Disconnect()
 		followConnection = nil
 		isFollowing = false
 	end
 	
-	-- Sử dụng PlatformStand để tránh bị lật nhào
-	if character and character:FindFirstChildOfClass("Humanoid") then
-		character:FindFirstChildOfClass("Humanoid").PlatformStand = true
-	end
+	-- Vô hiệu hóa vật lý để đạt tốc độ tối đa
+	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
-	-- Tạo BodyGyro để giữ thăng bằng (lấy từ code của bạn)
-	bodyGyro = Instance.new("BodyGyro")
-	bodyGyro.P = 9e4
-	bodyGyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
-	bodyGyro.cframe = humanoidRootPart.CFrame
-	bodyGyro.Parent = humanoidRootPart
-
-	-- Tạo BodyVelocity để bay lên (lấy từ code của bạn và chỉnh sửa)
-	bodyVelocity = Instance.new("BodyVelocity")
-	bodyVelocity.maxForce = Vector3.new(9e9, 9e9, 9e9)
-	-- Đây là phần quan trọng: chỉ cần set Velocity lên trời!
-	bodyVelocity.Velocity = Vector3.new(0, 100000, 0) -- Tốc độ cực cao, bạn có thể tăng thêm nếu muốn
-	bodyVelocity.Parent = humanoidRootPart
+	-- Bắt đầu vòng lặp dịch chuyển lên trời
+	flyConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		if not isFlying or not humanoidRootPart or not humanoidRootPart.Parent then
+			stopEverything()
+			return
+		end
+		
+		-- Tốc độ này đủ để bạn bay khỏi map trong 1 frame.
+		-- Con số 999... của bạn sẽ bị lỗi, đây là tốc độ thực tế tối đa.
+		local flySpeed = 500000 
+		local moveVector = Vector3.new(0, flySpeed * deltaTime, 0)
+		
+		-- Dịch chuyển nhân vật, bỏ qua mọi định luật vật lý
+		humanoidRootPpart.CFrame = humanoidRootPart.CFrame + moveVector
+	end)
 end
 
--- =======================================================================
--- CÁC SỰ KIỆN (ĐÃ CHỈNH SỬA KHOẢNG CÁCH THEO DÕI)
--- =======================================================================
+-- Các sự kiện (giữ nguyên)
 toggleButton.MouseButton1Click:Connect(function()
 	if not targetPlayer then
 		warn("Vui lòng chọn một người chơi trước!")
@@ -250,9 +237,6 @@ toggleButton.MouseButton1Click:Connect(function()
 			end
 			
 			local targetRootPart = targetPlayer.Character.HumanoidRootPart
-			-- =========================================================
-			-- THAY ĐỔI KHOẢNG CÁCH: từ 5 xuống 2.5 cho gần hơn
-			-- =========================================================
 			humanoidRootPart.CFrame = targetRootPart.CFrame * CFrame.new(0, 0, 2.5) 
 		end)
 		
@@ -303,11 +287,13 @@ end)
 
 localPlayer.CharacterAdded:Connect(function(newChar)
     character = newChar
+    humanoid = newChar:WaitForChild("Humanoid")
     humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
 	
-	-- Reset lại trạng thái nếu chết
 	stopEverything()
 	isActivated = false
+	targetPlayer = nil
+	playerSelectButton.Text = "Enter name"
 	toggleButton.Text = "off"
 	toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 
@@ -318,4 +304,4 @@ localPlayer.CharacterAdded:Connect(function(newChar)
     end)
 end)
 
-print("Script giam giữ phiên bản Cuối Cùng đã được tải!")
+print("Script giam giữ phiên bản Tốc Độ Bàn Thờ đã được tải!")
