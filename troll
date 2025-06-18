@@ -8,15 +8,21 @@ local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
+-- Biến cho chức năng
 local targetPlayer = nil
 local isActivated = false
 local isFollowing = false
-local isFlying = false
 local followConnection = nil
-local flyConnection = nil -- Sẽ dùng để quản lý vòng lặp bay mới
 
 -- =======================================================================
--- TẠO GIAO DIỆN (GUI) - (Phần này giữ nguyên, không cần thay đổi)
+-- BIẾN MỚI CHO SỨC MẠNH CÚ NHẢY
+-- =======================================================================
+local originalJumpPower = humanoid.JumpPower -- Lưu lại JumpPower gốc (thường là 50)
+local jumpMultiplier = 1 -- Hệ số nhân sức mạnh, bắt đầu từ 1
+
+
+-- =======================================================================
+-- TẠO GIAO DIỆN (GUI) - (Đã cập nhật)
 -- =======================================================================
 local trollGui = Instance.new("ScreenGui")
 trollGui.Name = "TrollGui"
@@ -25,7 +31,7 @@ trollGui.ResetOnSpawn = false
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 200, 0, 150)
+mainFrame.Size = UDim2.new(0, 200, 0, 200) -- Tăng chiều cao để chứa thêm nút
 mainFrame.Position = UDim2.new(0, 10, 0.3, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
@@ -61,18 +67,17 @@ contentFrame.Position = UDim2.new(0, 0, 0, 30)
 contentFrame.BackgroundTransparency = 1
 contentFrame.Parent = mainFrame
 
+-- Các nút cũ
 local playerSelectButton = Instance.new("TextButton")
 playerSelectButton.Name = "PlayerSelectButton"
 playerSelectButton.Size = UDim2.new(0, 180, 0, 40)
 playerSelectButton.Position = UDim2.new(0.5, -90, 0, 10)
 playerSelectButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-playerSelectButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 playerSelectButton.Text = "Enter name"
-playerSelectButton.Font = Enum.Font.SourceSans
-playerSelectButton.TextSize = 16
 playerSelectButton.Parent = contentFrame
 
 local playerListFrame = Instance.new("ScrollingFrame")
+-- ... (code player list giữ nguyên) ...
 playerListFrame.Name = "PlayerList"
 playerListFrame.Size = UDim2.new(0, 180, 0, 150)
 playerListFrame.Position = playerSelectButton.Position + UDim2.new(0, 0, 0, 40)
@@ -80,12 +85,9 @@ playerListFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 playerListFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
 playerListFrame.Visible = false
 playerListFrame.Parent = contentFrame
-
 local uiListLayout = Instance.new("UIListLayout")
 uiListLayout.Padding = UDim.new(0, 5)
-uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 uiListLayout.Parent = playerListFrame
-
 uiListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 	playerListFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y)
 end)
@@ -95,67 +97,92 @@ toggleButton.Name = "ToggleButton"
 toggleButton.Size = UDim2.new(0, 180, 0, 40)
 toggleButton.Position = UDim2.new(0.5, -90, 0, 60)
 toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.Text = "off"
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 18
 toggleButton.Parent = contentFrame
 
 -- =======================================================================
--- LOGIC CỦA SCRIPT
+-- GIAO DIỆN MỚI CHO JUMP POWER
+-- =======================================================================
+local powerFrame = Instance.new("Frame")
+powerFrame.Size = UDim2.new(1, 0, 0, 40)
+powerFrame.Position = UDim2.new(0, 0, 0, 110)
+powerFrame.BackgroundTransparency = 1
+powerFrame.Parent = contentFrame
+
+local minusButton = Instance.new("TextButton")
+minusButton.Name = "MinusButton"
+minusButton.Size = UDim2.new(0, 50, 1, 0)
+minusButton.Position = UDim2.new(0, 10, 0, 0)
+minusButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+minusButton.Text = "-"
+minusButton.Font = Enum.Font.SourceSansBold
+minusButton.TextSize = 24
+minusButton.Parent = powerFrame
+
+local powerDisplay = Instance.new("TextLabel")
+powerDisplay.Name = "PowerDisplay"
+powerDisplay.Size = UDim2.new(1, -120, 1, 0)
+powerDisplay.Position = UDim2.new(0, 60, 0, 0)
+powerDisplay.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+powerDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+powerDisplay.Text = "x" .. jumpMultiplier
+powerDisplay.Font = Enum.Font.SourceSansBold
+powerDisplay.TextSize = 18
+powerDisplay.Parent = powerFrame
+
+local plusButton = Instance.new("TextButton")
+plusButton.Name = "PlusButton"
+plusButton.Size = UDim2.new(0, 50, 1, 0)
+plusButton.Position = UDim2.new(1, -60, 0, 0)
+plusButton.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+plusButton.Text = "+"
+plusButton.Font = Enum.Font.SourceSansBold
+plusButton.TextSize = 24
+plusButton.Parent = powerFrame
+
+
+-- =======================================================================
+-- LOGIC CỦA SCRIPT (ĐÃ THAY ĐỔI)
 -- =======================================================================
 
 function updatePlayerList()
+	-- (Code này giữ nguyên)
 	for _, child in ipairs(playerListFrame:GetChildren()) do
-		if child:IsA("TextButton") then
-			child:Destroy()
-		end
+		if child:IsA("TextButton") then child:Destroy() end
 	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= localPlayer then
-			local playerButton = Instance.new("TextButton")
-			playerButton.Name = player.Name
-			playerButton.Size = UDim2.new(1, -10, 0, 30)
-			playerButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-			playerButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-			playerButton.Text = player.Name
-			playerButton.Font = Enum.Font.SourceSans
-			playerButton.TextSize = 14
-			playerButton.Parent = playerListFrame
-
-			playerButton.MouseButton1Click:Connect(function()
-				targetPlayer = player
-				playerSelectButton.Text = player.Name
-				playerListFrame.Visible = false
+			local b = Instance.new("TextButton", playerListFrame)
+			b.Name = player.Name; b.Text = player.Name; b.Size = UDim2.new(1, -10, 0, 30);
+			b.MouseButton1Click:Connect(function()
+				targetPlayer = player; playerSelectButton.Text = player.Name; playerListFrame.Visible = false;
 			end)
 		end
 	end
 end
 
--- =======================================================================
--- HÀM DỪNG MỌI HOẠT ĐỘNG (ĐÃ CẬP NHẬT)
--- =======================================================================
+-- Hàm cập nhật JumpPower
+function updateJumpPower()
+	powerDisplay.Text = "x" .. jumpMultiplier
+	if isActivated then
+		humanoid.JumpPower = originalJumpPower * jumpMultiplier
+	end
+end
+
+-- Hàm dừng mọi hoạt động
 function stopEverything()
 	isFollowing = false
-	isFlying = false
-	
 	if followConnection then
 		followConnection:Disconnect()
 		followConnection = nil
 	end
-
-	-- Ngắt kết nối vòng lặp bay
-	if flyConnection then
-		flyConnection:Disconnect()
-		flyConnection = nil
-	end
 	
-	-- Trả lại trạng thái bình thường cho nhân vật
+	-- Trả JumpPower về bình thường
 	if humanoid then
-		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		humanoid.JumpPower = originalJumpPower
 	end
 
-	-- Tìm người chơi tên "nam" để dịch chuyển đến
+	-- Teleport về người tên "nam"
 	for _, player in ipairs(Players:GetPlayers()) do
 		if string.find(player.Name:lower(), "nam") then
 			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -166,51 +193,26 @@ function stopEverything()
 	end
 end
 
--- =======================================================================
--- PHẦN QUAN TRỌNG NHẤT: HÀM BAY ĐÃ ĐƯỢC THAY THẾ HOÀN TOÀN
--- =======================================================================
-function startFlying()
-	if not isActivated or not targetPlayer or isFlying then return end
-	
-	print("Phát hiện Tool ghế! Chuẩn bị dịch chuyển...")
-	isFlying = true
-	task.wait(0.2) 
-
-	if not isActivated then 
-		isFlying = false
-		return 
+-- Sự kiện cho các nút +, -
+plusButton.MouseButton1Click:Connect(function()
+	if jumpMultiplier == 1 then
+		jumpMultiplier = 100 -- Nhảy bậc cho vui
+	else
+		jumpMultiplier = jumpMultiplier * 10
 	end
+	updateJumpPower()
+end)
 
-	print("3... 2... 1... BIẾN MẤT!")
-	
-	-- Ngừng theo dõi ngay lập tức để không bị giật lại
-	if followConnection then
-		followConnection:Disconnect()
-		followConnection = nil
-		isFollowing = false
+minusButton.MouseButton1Click:Connect(function()
+	if jumpMultiplier > 100 then
+		jumpMultiplier = jumpMultiplier / 10
+	else
+		jumpMultiplier = 1 -- Về mức 1
 	end
-	
-	-- Vô hiệu hóa vật lý để đạt tốc độ tối đa
-	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+	updateJumpPower()
+end)
 
-	-- Bắt đầu vòng lặp dịch chuyển lên trời
-	flyConnection = RunService.Heartbeat:Connect(function(deltaTime)
-		if not isFlying or not humanoidRootPart or not humanoidRootPart.Parent then
-			stopEverything()
-			return
-		end
-		
-		-- Tốc độ này đủ để bạn bay khỏi map trong 1 frame.
-		-- Con số 999... của bạn sẽ bị lỗi, đây là tốc độ thực tế tối đa.
-		local flySpeed = 500000 
-		local moveVector = Vector3.new(0, flySpeed * deltaTime, 0)
-		
-		-- Dịch chuyển nhân vật, bỏ qua mọi định luật vật lý
-		humanoidRootPpart.CFrame = humanoidRootPart.CFrame + moveVector
-	end)
-end
-
--- Các sự kiện (giữ nguyên)
+-- Sự kiện bật/tắt chính
 toggleButton.MouseButton1Click:Connect(function()
 	if not targetPlayer then
 		warn("Vui lòng chọn một người chơi trước!")
@@ -223,16 +225,18 @@ toggleButton.MouseButton1Click:Connect(function()
 		toggleButton.Text = "on"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
 		
+		-- Kích hoạt JumpPower và theo dõi
+		humanoid.JumpPower = originalJumpPower * jumpMultiplier
 		isFollowing = true
 		followConnection = RunService.Heartbeat:Connect(function()
 			if not isFollowing or not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-				stopEverything()
-				isActivated = false
+				-- Tự động tắt nếu mục tiêu thoát
 				toggleButton.Text = "off"
 				toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-				playerSelectButton.Text = "Enter name"
+				stopEverything()
+				isActivated = false
 				targetPlayer = nil
-				warn("Mục tiêu đã thoát hoặc có lỗi, đã tự động tắt.")
+				playerSelectButton.Text = "Enter name"
 				return
 			end
 			
@@ -247,61 +251,34 @@ toggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
+-- Các sự kiện phụ khác (giữ nguyên)
 playerSelectButton.MouseButton1Click:Connect(function()
 	playerListFrame.Visible = not playerListFrame.Visible
-	if playerListFrame.Visible then
-		updatePlayerList()
-	end
+	if playerListFrame.Visible then updatePlayerList() end
 end)
 
 local isMinimized = false
 minimizeButton.MouseButton1Click:Connect(function()
 	isMinimized = not isMinimized
 	contentFrame.Visible = not isMinimized
-	if isMinimized then
-		mainFrame.Size = UDim2.new(0, 200, 0, 30)
-	else
-		mainFrame.Size = UDim2.new(0, 200, 0, 150)
-	end
+	if isMinimized then mainFrame.Size = UDim2.new(0, 200, 0, 30)
+	else mainFrame.Size = UDim2.new(0, 200, 0, 200) end
 end)
 
-character.ChildAdded:Connect(function(child)
-	if child:IsA("Tool") and child.Name == "Chair" and isActivated then
-		startFlying()
-	end
-end)
-
-Players.PlayerAdded:Connect(updatePlayerList)
-Players.PlayerRemoving:Connect(function(player)
-	if player == targetPlayer then
-		targetPlayer = nil
-		playerSelectButton.Text = "Enter name"
-		if isActivated then
-			toggleButton.Text = "off"
-			toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-			stopEverything()
-		end
-	end
-	updatePlayerList()
-end)
-
+-- Xử lý khi người chơi reset
 localPlayer.CharacterAdded:Connect(function(newChar)
     character = newChar
     humanoid = newChar:WaitForChild("Humanoid")
     humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
+	originalJumpPower = humanoid.JumpPower -- Lấy lại JumpPower gốc
 	
-	stopEverything()
+	-- Reset lại mọi thứ
 	isActivated = false
-	targetPlayer = nil
-	playerSelectButton.Text = "Enter name"
+	if followConnection then followConnection:Disconnect() end
 	toggleButton.Text = "off"
 	toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-
-    newChar.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") and child.Name == "Chair" and isActivated then
-            startFlying()
-        end
-    end)
+	playerSelectButton.Text = "Enter name"
+	targetPlayer = nil
 end)
 
-print("Script giam giữ phiên bản Tốc Độ Bàn Thờ đã được tải!")
+print("Script giam giữ phiên bản Siêu Nhảy đã được tải!")
