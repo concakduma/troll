@@ -1,19 +1,20 @@
 --!strict
 --------------------------------------------------------------------
---  Giam Giữ Script  (với BACK_OFFSET = 1.5 studs)
+--  Giam Giữ Script  – equip delay = 0.1s, speed = math.huge
 --------------------------------------------------------------------
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
 local localPlr     = Players.LocalPlayer
 
 --------------------------------------------------------------------
--- Tham số cấu hình
+--  Tham số cấu hình
 --------------------------------------------------------------------
-local BACK_OFFSET  = 1.5        -- Khoảng cách phía sau mục tiêu (studs)
-local ASCEND_SPEED = 999_999_999 -- Vận tốc bay lên trục Y (stud/s)
+local BACK_OFFSET  = 1.5       -- Khoảng cách phía sau mục tiêu (studs)
+local ASCEND_SPEED = math.huge -- Vận tốc trục Y (∞)
+local EQUIP_DELAY  = 0.1       -- Thời gian chờ sau khi Equip (giây)
 
 --------------------------------------------------------------------
--- 1. Tạo GUI
+-- 1. Tạo giao diện
 --------------------------------------------------------------------
 local function createGui()
     local gui            = Instance.new("ScreenGui")
@@ -107,7 +108,7 @@ local function refreshList()
             b.TextColor3  = Color3.new(1,1,1)
             b.Text        = plr.Name
             b.Parent      = ui.scroll
-            y = y + 27
+            y += 27
 
             b.MouseButton1Click:Connect(function()
                 CHOSEN_NAME      = plr.Name
@@ -131,11 +132,13 @@ local function startFollow()
     if not target or not target.Character then return end
 
     FOLLOW_CON = RunService.RenderStepped:Connect(function()
-        local tChar = target.Character
-        local lChar = localPlr.Character
-        if tChar and lChar and tChar:FindFirstChild("HumanoidRootPart") and lChar:FindFirstChild("HumanoidRootPart") then
-            local behind = tChar.HumanoidRootPart.CFrame * CFrame.new(0, 0, BACK_OFFSET)
-            lChar.HumanoidRootPart.CFrame = CFrame.new(behind.Position, tChar.HumanoidRootPart.Position)
+        local tChar, lChar = target.Character, localPlr.Character
+        if tChar and lChar
+           and tChar:FindFirstChild("HumanoidRootPart")
+           and lChar:FindFirstChild("HumanoidRootPart") then
+            local behind = tChar.HumanoidRootPart.CFrame * CFrame.new(0,0,BACK_OFFSET)
+            lChar.HumanoidRootPart.CFrame = CFrame.new(behind.Position,
+                                                       tChar.HumanoidRootPart.Position)
         end
     end)
 end
@@ -163,10 +166,10 @@ end
 local function startAscend()
     local root = localPlr.Character and localPlr.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
-    ASCEND_FORCE           = Instance.new("BodyVelocity")
-    ASCEND_FORCE.MaxForce  = Vector3.new(0, math.huge, 0)
-    ASCEND_FORCE.Velocity  = Vector3.new(0, ASCEND_SPEED, 0)
-    ASCEND_FORCE.Parent    = root
+    ASCEND_FORCE          = Instance.new("BodyVelocity")
+    ASCEND_FORCE.MaxForce = Vector3.new(0, math.huge, 0)
+    ASCEND_FORCE.Velocity = Vector3.new(0, ASCEND_SPEED, 0) -- math.huge
+    ASCEND_FORCE.Parent   = root
 end
 
 local function stopAscend()
@@ -178,14 +181,15 @@ end
 
 local function tpToNam()
     for _,p in ipairs(Players:GetPlayers()) do
-        if p ~= localPlr and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if p.Name:lower():find("nam") then
-                local root = localPlr.Character and localPlr.Character:FindFirstChild("HumanoidRootPart")
-                if root then
-                    root.CFrame = p.Character.HumanoidRootPart.CFrame + Vector3.new(0,2,0)
-                end
-                break
+        if p ~= localPlr
+           and p.Character
+           and p.Character:FindFirstChild("HumanoidRootPart")
+           and p.Name:lower():find("nam") then
+            local root = localPlr.Character and localPlr.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.CFrame = p.Character.HumanoidRootPart.CFrame + Vector3.new(0,2,0)
             end
+            break
         end
     end
 end
@@ -199,8 +203,9 @@ end)
 
 ui.toggleBtn.MouseButton1Click:Connect(function()
     IS_ON = not IS_ON
-    ui.toggleBtn.Text              = IS_ON and "on" or "off"
-    ui.toggleBtn.BackgroundColor3  = IS_ON and Color3.fromRGB(0,145,0) or Color3.fromRGB(145,0,0)
+    ui.toggleBtn.Text             = IS_ON and "on" or "off"
+    ui.toggleBtn.BackgroundColor3 = IS_ON and Color3.fromRGB(0,145,0)
+                                      or Color3.fromRGB(145,0,0)
     if IS_ON then
         startFollow()
     else
@@ -218,7 +223,8 @@ ui.minimize.MouseButton1Click:Connect(function()
             obj.Visible = not collapsed
         end
     end
-    ui.frame.Size = collapsed and UDim2.new(0,40,0,30) or UDim2.new(0,220,0,160)
+    ui.frame.Size = collapsed and UDim2.new(0,40,0,30)
+                                or  UDim2.new(0,220,0,160)
 end)
 
 --------------------------------------------------------------------
@@ -228,30 +234,24 @@ local function onEquipped(tool:Tool)
     if not IS_ON or not CHOSEN_NAME then return end
     local target = Players:FindFirstChild(CHOSEN_NAME)
     if not target then return end
-    task.wait(0.2)
+    task.wait(EQUIP_DELAY)
     seatTarget(tool, target)
     startAscend()
 end
 
 local function hookCharacter(char:Model)
     for _,child in ipairs(char:GetChildren()) do
-        if child:IsA("Tool") then
-            child.Equipped:Connect(onEquipped)
-        end
+        if child:IsA("Tool") then child.Equipped:Connect(onEquipped) end
     end
     char.ChildAdded:Connect(function(c)
-        if c:IsA("Tool") then
-            c.Equipped:Connect(onEquipped)
-        end
+        if c:IsA("Tool") then c.Equipped:Connect(onEquipped) end
     end)
 end
 
-if localPlr.Character then
-    hookCharacter(localPlr.Character)
-end
+if localPlr.Character then hookCharacter(localPlr.Character) end
 localPlr.CharacterAdded:Connect(hookCharacter)
 
 --------------------------------------------------------------------
--- 6. Ngăn map huỷ part khi bay quá cao
+-- 6. Ngăn map huỷ part khi lên quá cao
 --------------------------------------------------------------------
 workspace.FallenPartsDestroyHeight = -1e9
