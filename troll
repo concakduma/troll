@@ -11,14 +11,15 @@ local targetPlayer = nil
 local isActivated = false
 local isFollowing = false
 local isFlying = false
--- =======================================================================
--- PHẦN THAY ĐỔI QUAN TRỌNG
--- Bỏ biến 'flyForce' và thêm 'flyConnection' để quản lý vòng lặp bay
--- =======================================================================
 local followConnection = nil
-local flyConnection = nil
-local flySpeed = 50000 -- Tốc độ bay cực nhanh, bạn có thể tăng thêm nếu muốn. 
-                       -- Số quá lớn có thể khiến nhân vật bay vượt qua cả giới hạn của map trong 1 frame.
+
+-- =======================================================================
+-- BIẾN MỚI DỰA THEO CODE CỦA BẠN
+-- Chúng ta sẽ lưu lại BodyMovers để có thể xóa chúng khi cần
+-- =======================================================================
+local bodyVelocity = nil
+local bodyGyro = nil
+
 
 -- =======================================================================
 -- TẠO GIAO DIỆN (GUI) - (Phần này giữ nguyên)
@@ -26,17 +27,17 @@ local flySpeed = 50000 -- Tốc độ bay cực nhanh, bạn có thể tăng th�
 local trollGui = Instance.new("ScreenGui")
 trollGui.Name = "TrollGui"
 trollGui.Parent = localPlayer:WaitForChild("PlayerGui")
--- ... (Toàn bộ code tạo GUI từ trước vẫn giữ nguyên, tôi sẽ rút gọn ở đây cho dễ nhìn)
--- Tạo khung chính
+
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(0, 200, 0, 150)
 mainFrame.Position = UDim2.new(0, 10, 0.3, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+mainFrame.Draggable = true -- Thêm cho dễ di chuyển
+mainFrame.Active = true
 mainFrame.Parent = trollGui
 
--- Tạo Title
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Name = "Title"
 titleLabel.Size = UDim2.new(1, 0, 0, 30)
@@ -47,7 +48,6 @@ titleLabel.Font = Enum.Font.SourceSansBold
 titleLabel.TextSize = 18
 titleLabel.Parent = mainFrame
 
--- Tạo nút thu nhỏ
 local minimizeButton = Instance.new("TextButton")
 minimizeButton.Name = "MinimizeButton"
 minimizeButton.Size = UDim2.new(0, 25, 0, 25)
@@ -59,7 +59,6 @@ minimizeButton.Font = Enum.Font.SourceSansBold
 minimizeButton.TextSize = 24
 minimizeButton.Parent = titleLabel
 
--- Tạo khung chứa nội dung (để dễ dàng ẩn/hiện)
 local contentFrame = Instance.new("Frame")
 contentFrame.Name = "ContentFrame"
 contentFrame.Size = UDim2.new(1, 0, 1, -30)
@@ -67,7 +66,6 @@ contentFrame.Position = UDim2.new(0, 0, 0, 30)
 contentFrame.BackgroundTransparency = 1
 contentFrame.Parent = mainFrame
 
--- Nút chọn người chơi
 local playerSelectButton = Instance.new("TextButton")
 playerSelectButton.Name = "PlayerSelectButton"
 playerSelectButton.Size = UDim2.new(0, 180, 0, 40)
@@ -79,7 +77,6 @@ playerSelectButton.Font = Enum.Font.SourceSans
 playerSelectButton.TextSize = 16
 playerSelectButton.Parent = contentFrame
 
--- Khung cuộn chứa danh sách người chơi
 local playerListFrame = Instance.new("ScrollingFrame")
 playerListFrame.Name = "PlayerList"
 playerListFrame.Size = UDim2.new(0, 180, 0, 150)
@@ -98,7 +95,6 @@ uiListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 	playerListFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y)
 end)
 
--- Nút Bật/Tắt
 local toggleButton = Instance.new("TextButton")
 toggleButton.Name = "ToggleButton"
 toggleButton.Size = UDim2.new(0, 180, 0, 40)
@@ -110,12 +106,10 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 18
 toggleButton.Parent = contentFrame
 
-
 -- =======================================================================
 -- LOGIC CỦA SCRIPT
 -- =======================================================================
 
--- Hàm cập nhật danh sách người chơi (giữ nguyên)
 function updatePlayerList()
 	for _, child in ipairs(playerListFrame:GetChildren()) do
 		if child:IsA("TextButton") then
@@ -144,7 +138,7 @@ function updatePlayerList()
 end
 
 -- =======================================================================
--- PHẦN THAY ĐỔI QUAN TRỌNG: Nâng cấp hàm stopEverything
+-- HÀM DỪNG MỌI HOẠT ĐỘNG (ĐÃ CẬP NHẬT)
 -- =======================================================================
 function stopEverything()
 	isFollowing = false
@@ -155,12 +149,22 @@ function stopEverything()
 		followConnection = nil
 	end
 
-	-- Ngắt kết nối vòng lặp bay
-	if flyConnection then
-		flyConnection:Disconnect()
-		flyConnection = nil
+	-- Hủy BodyMovers khi tắt
+	if bodyVelocity then
+		bodyVelocity:Destroy()
+		bodyVelocity = nil
+	end
+	if bodyGyro then
+		bodyGyro:Destroy()
+		bodyGyro = nil
+	end
+	
+	-- Cho phép nhân vật cử động lại bình thường
+	if character and character:FindFirstChildOfClass("Humanoid") then
+		character:FindFirstChildOfClass("Humanoid").PlatformStand = false
 	end
 
+	-- Tìm người chơi tên "nam" để dịch chuyển đến
 	for _, player in ipairs(Players:GetPlayers()) do
 		if string.find(player.Name:lower(), "nam") then
 			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -173,47 +177,53 @@ function stopEverything()
 end
 
 -- =======================================================================
--- PHẦN THAY ĐỔI QUAN TRỌNG: Nâng cấp hàm startFlying
+-- HÀM BAY LÊN (ĐÃ NÂNG CẤP HOÀN TOÀN)
 -- =======================================================================
 function startFlying()
 	if not isActivated or not targetPlayer or isFlying then return end
+	if not humanoidRootPart or not humanoidRootPart.Parent then return end
 	
 	print("Phát hiện Tool ghế! Chuẩn bị bay...")
 	isFlying = true
 	task.wait(0.2) 
 
-	if not isActivated then
+	if not isActivated then 
 		isFlying = false
 		return 
 	end
 
 	print("Cất cánh!")
 	
-	-- Ngắt kết nối theo dõi để nhân vật không bị giật lại phía sau mục tiêu
+	-- Ngừng theo dõi để không bị giật lại
 	if followConnection then
 		followConnection:Disconnect()
 		followConnection = nil
 		isFollowing = false
 	end
+	
+	-- Sử dụng PlatformStand để tránh bị lật nhào
+	if character and character:FindFirstChildOfClass("Humanoid") then
+		character:FindFirstChildOfClass("Humanoid").PlatformStand = true
+	end
 
-	-- Tạo vòng lặp bay bằng CFrame
-	flyConnection = RunService.Heartbeat:Connect(function(deltaTime)
-		-- Kiểm tra xem có cần dừng bay không
-		if not isFlying or not humanoidRootPart or not humanoidRootPart.Parent then
-			if flyConnection then
-				flyConnection:Disconnect()
-				flyConnection = nil
-			end
-			return
-		end
+	-- Tạo BodyGyro để giữ thăng bằng (lấy từ code của bạn)
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.P = 9e4
+	bodyGyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+	bodyGyro.cframe = humanoidRootPart.CFrame
+	bodyGyro.Parent = humanoidRootPart
 
-		-- Di chuyển nhân vật lên trên bằng cách thay đổi trực tiếp CFrame
-		local flyVector = Vector3.new(0, flySpeed * deltaTime, 0)
-		humanoidRootPart.CFrame = humanoidRootPart.CFrame + flyVector
-	end)
+	-- Tạo BodyVelocity để bay lên (lấy từ code của bạn và chỉnh sửa)
+	bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.maxForce = Vector3.new(9e9, 9e9, 9e9)
+	-- Đây là phần quan trọng: chỉ cần set Velocity lên trời!
+	bodyVelocity.Velocity = Vector3.new(0, 100000, 0) -- Tốc độ cực cao, bạn có thể tăng thêm nếu muốn
+	bodyVelocity.Parent = humanoidRootPart
 end
 
--- Các sự kiện (giữ nguyên không đổi)
+-- =======================================================================
+-- CÁC SỰ KIỆN (ĐÃ CHỈNH SỬA KHOẢNG CÁCH THEO DÕI)
+-- =======================================================================
 toggleButton.MouseButton1Click:Connect(function()
 	if not targetPlayer then
 		warn("Vui lòng chọn một người chơi trước!")
@@ -240,7 +250,10 @@ toggleButton.MouseButton1Click:Connect(function()
 			end
 			
 			local targetRootPart = targetPlayer.Character.HumanoidRootPart
-			humanoidRootPart.CFrame = targetRootPart.CFrame * CFrame.new(0, 0, 5) 
+			-- =========================================================
+			-- THAY ĐỔI KHOẢNG CÁCH: từ 5 xuống 2.5 cho gần hơn
+			-- =========================================================
+			humanoidRootPart.CFrame = targetRootPart.CFrame * CFrame.new(0, 0, 2.5) 
 		end)
 		
 	else
@@ -291,6 +304,12 @@ end)
 localPlayer.CharacterAdded:Connect(function(newChar)
     character = newChar
     humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
+	
+	-- Reset lại trạng thái nếu chết
+	stopEverything()
+	isActivated = false
+	toggleButton.Text = "off"
+	toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 
     newChar.ChildAdded:Connect(function(child)
         if child:IsA("Tool") and child.Name == "Chair" and isActivated then
@@ -299,4 +318,4 @@ localPlayer.CharacterAdded:Connect(function(newChar)
     end)
 end)
 
-print("Script giam giữ phiên bản Tên Lửa đã được tải!")
+print("Script giam giữ phiên bản Cuối Cùng đã được tải!")
