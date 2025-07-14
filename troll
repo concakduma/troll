@@ -1,6 +1,5 @@
---!strict
 --------------------------------------------------------------------
---  Giam Giữ Script  – speed = 9_999_999_999, equip delay = 0.1 s
+--  Auto Giam Giữ Script – Auto mode with idle detection
 --------------------------------------------------------------------
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
@@ -11,19 +10,20 @@ local localPlr     = Players.LocalPlayer
 --------------------------------------------------------------------
 local BACK_OFFSET  = 1.5             -- Khoảng cách bám sau (studs)
 local ASCEND_SPEED = 9_999_999_999   -- Vận tốc trục Y
-local EQUIP_DELAY  = 0.1             -- Thời gian chờ sau khi Equip (s)
+local EQUIP_DELAY  = 0.2             -- Thời gian chờ sau khi Equip (s)
+local IDLE_TIME    = 0.05            -- Thời gian đứng im để trigger (s)
 
 --------------------------------------------------------------------
 -- 1. Tạo giao diện -------------------------------------------------
 --------------------------------------------------------------------
 local function createGui()
     local gui        = Instance.new("ScreenGui")
-    gui.Name         = "GiamGiuGui"
+    gui.Name         = "AutoGiamGiuGui"
     gui.ResetOnSpawn = false
     gui.Parent       = localPlr:WaitForChild("PlayerGui")
 
     local frame = Instance.new("Frame")
-    frame.Size            = UDim2.new(0,220,0,160)
+    frame.Size            = UDim2.new(0,220,0,180)
     frame.Position        = UDim2.new(0,10,0,150)
     frame.BackgroundColor3= Color3.fromRGB(25,25,25)
     frame.BorderSizePixel = 0
@@ -35,7 +35,7 @@ local function createGui()
     title.Font                   = Enum.Font.GothamBold
     title.TextSize               = 20
     title.TextColor3             = Color3.new(1,1,1)
-    title.Text                   = "giam giữ"
+    title.Text                   = "auto giam giữ"
     title.Parent                 = frame
 
     local minimize = Instance.new("TextButton")
@@ -76,12 +76,23 @@ local function createGui()
     toggleBtn.Text             = "off"
     toggleBtn.Parent           = frame
 
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size                   = UDim2.new(1,-20,0,20)
+    statusLabel.Position               = UDim2.new(0,10,0,160)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Font                   = Enum.Font.Gotham
+    statusLabel.TextSize               = 14
+    statusLabel.TextColor3             = Color3.fromRGB(200,200,200)
+    statusLabel.Text                   = "Status: Idle"
+    statusLabel.Parent                 = frame
+
     return {
-        frame     = frame,
-        minimize  = minimize,
-        enterBtn  = enterBtn,
-        scroll    = scroll,
-        toggleBtn = toggleBtn
+        frame      = frame,
+        minimize   = minimize,
+        enterBtn   = enterBtn,
+        scroll     = scroll,
+        toggleBtn  = toggleBtn,
+        statusLabel= statusLabel
     }
 end
 
@@ -90,6 +101,10 @@ local CHOSEN_NAME  = nil
 local IS_ON        = false
 local FOLLOW_CON   = nil
 local ASCEND_FORCE = nil
+local IDLE_CHECK   = nil
+local CAPTURED     = false
+local LAST_POSITIONS = {}
+local IDLE_TIMES   = {}
 
 --------------------------------------------------------------------
 -- 2. Cập nhật danh sách người chơi -------------------------------
@@ -113,6 +128,7 @@ local function refreshList()
                 CHOSEN_NAME      = p.Name
                 ui.enterBtn.Text = p.Name
                 ui.scroll.Visible = false
+                CAPTURED = false
             end)
         end
     end
@@ -125,6 +141,33 @@ refreshList()
 --------------------------------------------------------------------
 -- 3. Hàm hỗ trợ ---------------------------------------------------
 --------------------------------------------------------------------
+local function getFirstTool()
+    local backpack = localPlr:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
+local function equipTool(tool)
+    if tool and localPlr.Character and localPlr.Character:FindFirstChild("Humanoid") then
+        localPlr.Character.Humanoid:EquipTool(tool)
+        return true
+    end
+    return false
+end
+
+local function isTargetSeated(target)
+    if target and target.Character and target.Character:FindFirstChild("Humanoid") then
+        return target.Character.Humanoid.Sit
+    end
+    return false
+end
+
 local function startFollow()
     if FOLLOW_CON or not CHOSEN_NAME then return end
     local target = Players:FindFirstChild(CHOSEN_NAME)
@@ -141,6 +184,7 @@ local function startFollow()
         end
     end)
 end
+
 local function stopFollow()
     if FOLLOW_CON then FOLLOW_CON:Disconnect(); FOLLOW_CON=nil end
 end
@@ -166,6 +210,7 @@ local function startAscend()
     ASCEND_FORCE.Velocity  = Vector3.new(0, ASCEND_SPEED, 0)
     ASCEND_FORCE.Parent    = root
 end
+
 local function stopAscend()
     if ASCEND_FORCE then ASCEND_FORCE:Destroy(); ASCEND_FORCE=nil end
 end
@@ -179,6 +224,63 @@ local function tpToNam()
             break
         end
     end
+end
+
+local function autoCapture(target)
+    if CAPTURED or not target or not target.Character then return end
+    
+    ui.statusLabel.Text = "Status: Auto capturing..."
+    CAPTURED = true
+    
+    local tool = getFirstTool()
+    if tool and equipTool(tool) then
+        task.wait(EQUIP_DELAY)
+        seatTarget(tool, target)
+        startAscend()
+        ui.statusLabel.Text = "Status: Captured & ascending!"
+    else
+        CAPTURED = false
+        ui.statusLabel.Text = "Status: No tool found"
+    end
+end
+
+local function checkIdleStatus()
+    if not IS_ON or not CHOSEN_NAME then return end
+    
+    local target = Players:FindFirstChild(CHOSEN_NAME)
+    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then 
+        return 
+    end
+    
+    -- Skip if already captured or target is seated
+    if CAPTURED or isTargetSeated(target) then
+        if isTargetSeated(target) then
+            ui.statusLabel.Text = "Status: Target is seated"
+        end
+        return
+    end
+    
+    local currentPos = target.Character.HumanoidRootPart.Position
+    local lastPos = LAST_POSITIONS[target.Name]
+    
+    if lastPos then
+        local movement = (currentPos - lastPos).Magnitude
+        
+        if movement < 0.1 then -- Basically not moving
+            IDLE_TIMES[target.Name] = (IDLE_TIMES[target.Name] or 0) + RunService.Heartbeat:Wait()
+            
+            if IDLE_TIMES[target.Name] >= IDLE_TIME then
+                ui.statusLabel.Text = "Status: Target idle - triggering!"
+                autoCapture(target)
+                IDLE_TIMES[target.Name] = 0
+            end
+        else
+            IDLE_TIMES[target.Name] = 0
+            ui.statusLabel.Text = "Status: Following target"
+        end
+    end
+    
+    LAST_POSITIONS[target.Name] = currentPos
 end
 
 --------------------------------------------------------------------
@@ -195,10 +297,22 @@ ui.toggleBtn.MouseButton1Click:Connect(function()
                                       or Color3.fromRGB(145,0,0)
     if IS_ON then
         startFollow()
+        CAPTURED = false
+        IDLE_TIMES = {}
+        LAST_POSITIONS = {}
+        
+        -- Start idle checking
+        if IDLE_CHECK then IDLE_CHECK:Disconnect() end
+        IDLE_CHECK = RunService.Heartbeat:Connect(checkIdleStatus)
+        
+        ui.statusLabel.Text = "Status: Auto mode active"
     else
         stopFollow()
         stopAscend()
+        if IDLE_CHECK then IDLE_CHECK:Disconnect(); IDLE_CHECK = nil end
         tpToNam()
+        CAPTURED = false
+        ui.statusLabel.Text = "Status: Idle"
     end
 end)
 
@@ -208,29 +322,17 @@ ui.minimize.MouseButton1Click:Connect(function()
     for _,obj in ipairs(ui.frame:GetChildren()) do
         if obj~=ui.minimize then obj.Visible = not collapsed end
     end
-    ui.frame.Size = collapsed and UDim2.new(0,40,0,30) or UDim2.new(0,220,0,160)
+    ui.frame.Size = collapsed and UDim2.new(0,40,0,30) or UDim2.new(0,220,0,180)
 end)
 
 --------------------------------------------------------------------
--- 5. Tool – bay ---------------------------------------------------
+-- 5. Character respawn handling -----------------------------------
 --------------------------------------------------------------------
-local function onEquipped(tool:Tool)
-    if not IS_ON or not CHOSEN_NAME then return end
-    local target = Players:FindFirstChild(CHOSEN_NAME)
-    if not target then return end
-    task.wait(EQUIP_DELAY)
-    seatTarget(tool, target)
-    startAscend()
+local function hookChar(char:Model)
+    CAPTURED = false
+    ui.statusLabel.Text = "Status: Character respawned"
 end
 
-local function hookChar(char:Model)
-    for _,c in ipairs(char:GetChildren()) do
-        if c:IsA("Tool") then c.Equipped:Connect(onEquipped) end
-    end
-    char.ChildAdded:Connect(function(c)
-        if c:IsA("Tool") then c.Equipped:Connect(onEquipped) end
-    end)
-end
 if localPlr.Character then hookChar(localPlr.Character) end
 localPlr.CharacterAdded:Connect(hookChar)
 
