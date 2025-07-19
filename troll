@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
---  Auto Giam Giữ Script – Auto mode with idle detection
+--  Auto Giam Giữ Script với Tàng Hình – Stealth Mode Activated
 --------------------------------------------------------------------
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
@@ -11,19 +11,35 @@ local localPlr     = Players.LocalPlayer
 local BACK_OFFSET  = 1.5             -- Khoảng cách bám sau (studs)
 local ASCEND_SPEED = 9_999_999_999   -- Vận tốc trục Y
 local EQUIP_DELAY  = 0.2             -- Thời gian chờ sau khi Equip (s)
-local IDLE_TIME    = 0.05            -- Thời gian đứng im để trigger (s)
+local IDLE_TIME    = 0.1             -- Thời gian đứng im để trigger (s)
+local RESET_DELAY  = 0.4             -- Thời gian chờ trước khi reset (s)
+local INVIS_DELAY  = 0.2             -- Thời gian chờ trước khi tàng hình lại (s)
+
+--------------------------------------------------------------------
+-- Variables
+--------------------------------------------------------------------
+local CHOSEN_NAME  = nil
+local IS_ON        = false
+local FOLLOW_CON   = nil
+local ASCEND_FORCE = nil
+local IDLE_CHECK   = nil
+local CAPTURED     = false
+local LAST_POSITIONS = {}
+local IDLE_TIMES   = {}
+local IS_INVISIBLE = false
+local INVIS_SEAT   = nil
 
 --------------------------------------------------------------------
 -- 1. Tạo giao diện -------------------------------------------------
 --------------------------------------------------------------------
 local function createGui()
     local gui        = Instance.new("ScreenGui")
-    gui.Name         = "AutoGiamGiuGui"
+    gui.Name         = "StealthGiamGiuGui"
     gui.ResetOnSpawn = false
     gui.Parent       = localPlr:WaitForChild("PlayerGui")
 
     local frame = Instance.new("Frame")
-    frame.Size            = UDim2.new(0,220,0,180)
+    frame.Size            = UDim2.new(0,220,0,200)
     frame.Position        = UDim2.new(0,10,0,150)
     frame.BackgroundColor3= Color3.fromRGB(25,25,25)
     frame.BorderSizePixel = 0
@@ -35,7 +51,7 @@ local function createGui()
     title.Font                   = Enum.Font.GothamBold
     title.TextSize               = 20
     title.TextColor3             = Color3.new(1,1,1)
-    title.Text                   = "auto giam giữ"
+    title.Text                   = "stealth auto capture"
     title.Parent                 = frame
 
     local minimize = Instance.new("TextButton")
@@ -86,28 +102,85 @@ local function createGui()
     statusLabel.Text                   = "Status: Idle"
     statusLabel.Parent                 = frame
 
+    local invisLabel = Instance.new("TextLabel")
+    invisLabel.Size                   = UDim2.new(1,-20,0,20)
+    invisLabel.Position               = UDim2.new(0,10,0,180)
+    invisLabel.BackgroundTransparency = 1
+    invisLabel.Font                   = Enum.Font.Gotham
+    invisLabel.TextSize               = 14
+    invisLabel.TextColor3             = Color3.fromRGB(150,255,150)
+    invisLabel.Text                   = "Invisible: OFF"
+    invisLabel.Parent                 = frame
+
     return {
-        frame      = frame,
-        minimize   = minimize,
-        enterBtn   = enterBtn,
-        scroll     = scroll,
-        toggleBtn  = toggleBtn,
-        statusLabel= statusLabel
+        frame       = frame,
+        minimize    = minimize,
+        enterBtn    = enterBtn,
+        scroll      = scroll,
+        toggleBtn   = toggleBtn,
+        statusLabel = statusLabel,
+        invisLabel  = invisLabel
     }
 end
 
-local ui           = createGui()
-local CHOSEN_NAME  = nil
-local IS_ON        = false
-local FOLLOW_CON   = nil
-local ASCEND_FORCE = nil
-local IDLE_CHECK   = nil
-local CAPTURED     = false
-local LAST_POSITIONS = {}
-local IDLE_TIMES   = {}
+local ui = createGui()
 
 --------------------------------------------------------------------
--- 2. Cập nhật danh sách người chơi -------------------------------
+-- 2. Invisible Functions -------------------------------------------
+--------------------------------------------------------------------
+local function UpdateTransparency(character, value)
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            part.LocalTransparencyModifier = value
+        end
+    end
+end
+
+local function SetInvisible(state)
+    IS_INVISIBLE = state
+    local character = localPlr.Character
+    if not character then return end
+    
+    if state then
+        -- Save current position and create invisible seat
+        local savedPosition = character.HumanoidRootPart.CFrame
+        wait()
+        character:MoveTo(Vector3.new(-25.95, 84, 3537.55))
+        wait(0.15)
+        
+        -- Create invisible seat
+        INVIS_SEAT = Instance.new('Seat', workspace)
+        INVIS_SEAT.Anchored = false
+        INVIS_SEAT.CanCollide = false
+        INVIS_SEAT.Name = 'stealthchair'
+        INVIS_SEAT.Transparency = 1
+        INVIS_SEAT.Position = Vector3.new(-25.95, 84, 3537.55)
+        
+        -- Weld character to seat
+        local weld = Instance.new("Weld", INVIS_SEAT)
+        weld.Part0 = INVIS_SEAT
+        weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+        wait()
+        
+        -- Return to original position
+        INVIS_SEAT.CFrame = savedPosition
+        ui.invisLabel.Text = "Invisible: ON 🥷"
+        ui.invisLabel.TextColor3 = Color3.fromRGB(150,255,150)
+    else
+        -- Remove invisibility
+        if INVIS_SEAT then
+            INVIS_SEAT:Destroy()
+            INVIS_SEAT = nil
+        end
+        ui.invisLabel.Text = "Invisible: OFF"
+        ui.invisLabel.TextColor3 = Color3.fromRGB(255,150,150)
+    end
+    
+    UpdateTransparency(character, state and 0.5 or 0)
+end
+
+--------------------------------------------------------------------
+-- 3. Cập nhật danh sách người chơi -------------------------------
 --------------------------------------------------------------------
 local function refreshList()
     ui.scroll:ClearAllChildren()
@@ -139,7 +212,7 @@ Players.PlayerRemoving:Connect(refreshList)
 refreshList()
 
 --------------------------------------------------------------------
--- 3. Hàm hỗ trợ ---------------------------------------------------
+-- 4. Hàm hỗ trợ ---------------------------------------------------
 --------------------------------------------------------------------
 local function getFirstTool()
     local backpack = localPlr:FindFirstChild("Backpack")
@@ -173,6 +246,9 @@ local function startFollow()
     local target = Players:FindFirstChild(CHOSEN_NAME)
     if not target or not target.Character then return end
 
+    -- Enable invisibility when starting to follow
+    SetInvisible(true)
+
     FOLLOW_CON = RunService.RenderStepped:Connect(function()
         local tChar, lChar = target.Character, localPlr.Character
         if tChar and lChar
@@ -187,6 +263,7 @@ end
 
 local function stopFollow()
     if FOLLOW_CON then FOLLOW_CON:Disconnect(); FOLLOW_CON=nil end
+    SetInvisible(false)
 end
 
 local function seatTarget(tool:Tool, targetPlr:Player)
@@ -226,11 +303,20 @@ local function tpToNam()
     end
 end
 
+local function resetCharacter()
+    if localPlr.Character and localPlr.Character:FindFirstChild("Humanoid") then
+        localPlr.Character.Humanoid.Health = 0
+    end
+end
+
 local function autoCapture(target)
     if CAPTURED or not target or not target.Character then return end
     
-    ui.statusLabel.Text = "Status: Auto capturing..."
+    ui.statusLabel.Text = "Status: Target idle - capturing..."
     CAPTURED = true
+    
+    -- Disable invisibility before equipping tool
+    SetInvisible(false)
     
     local tool = getFirstTool()
     if tool and equipTool(tool) then
@@ -238,8 +324,20 @@ local function autoCapture(target)
         seatTarget(tool, target)
         startAscend()
         ui.statusLabel.Text = "Status: Captured & ascending!"
+        
+        -- Reset after delay
+        task.wait(RESET_DELAY)
+        ui.statusLabel.Text = "Status: Resetting..."
+        resetCharacter()
+        
+        -- Re-enable invisibility after reset
+        task.wait(INVIS_DELAY)
+        CAPTURED = false
+        SetInvisible(true)
+        ui.statusLabel.Text = "Status: Stealth mode active"
     else
         CAPTURED = false
+        SetInvisible(true)
         ui.statusLabel.Text = "Status: No tool found"
     end
 end
@@ -270,13 +368,14 @@ local function checkIdleStatus()
             IDLE_TIMES[target.Name] = (IDLE_TIMES[target.Name] or 0) + RunService.Heartbeat:Wait()
             
             if IDLE_TIMES[target.Name] >= IDLE_TIME then
-                ui.statusLabel.Text = "Status: Target idle - triggering!"
                 autoCapture(target)
                 IDLE_TIMES[target.Name] = 0
             end
         else
             IDLE_TIMES[target.Name] = 0
-            ui.statusLabel.Text = "Status: Following target"
+            if not CAPTURED then
+                ui.statusLabel.Text = "Status: Following (invisible)"
+            end
         end
     end
     
@@ -284,7 +383,7 @@ local function checkIdleStatus()
 end
 
 --------------------------------------------------------------------
--- 4. Sự kiện GUI --------------------------------------------------
+-- 5. Sự kiện GUI --------------------------------------------------
 --------------------------------------------------------------------
 ui.enterBtn.MouseButton1Click:Connect(function()
     ui.scroll.Visible = not ui.scroll.Visible
@@ -305,7 +404,7 @@ ui.toggleBtn.MouseButton1Click:Connect(function()
         if IDLE_CHECK then IDLE_CHECK:Disconnect() end
         IDLE_CHECK = RunService.Heartbeat:Connect(checkIdleStatus)
         
-        ui.statusLabel.Text = "Status: Auto mode active"
+        ui.statusLabel.Text = "Status: Stealth mode active"
     else
         stopFollow()
         stopAscend()
@@ -322,21 +421,38 @@ ui.minimize.MouseButton1Click:Connect(function()
     for _,obj in ipairs(ui.frame:GetChildren()) do
         if obj~=ui.minimize then obj.Visible = not collapsed end
     end
-    ui.frame.Size = collapsed and UDim2.new(0,40,0,30) or UDim2.new(0,220,0,180)
+    ui.frame.Size = collapsed and UDim2.new(0,40,0,30) or UDim2.new(0,220,0,200)
 end)
 
 --------------------------------------------------------------------
--- 5. Character respawn handling -----------------------------------
+-- 6. Character respawn handling -----------------------------------
 --------------------------------------------------------------------
 local function hookChar(char:Model)
     CAPTURED = false
+    SetInvisible(false)
     ui.statusLabel.Text = "Status: Character respawned"
+    
+    -- Re-apply transparency if needed
+    char.ChildAdded:Connect(function()
+        if IS_ON and IS_INVISIBLE then
+            UpdateTransparency(char, 0.5)
+        end
+    end)
 end
 
 if localPlr.Character then hookChar(localPlr.Character) end
 localPlr.CharacterAdded:Connect(hookChar)
 
 --------------------------------------------------------------------
--- 6. Không huỷ Part khi quá cao ----------------------------------
+-- 7. Không huỷ Part khi quá cao ----------------------------------
 --------------------------------------------------------------------
 workspace.FallenPartsDestroyHeight = -1e9
+
+--------------------------------------------------------------------
+-- 8. Notification -------------------------------------------------
+--------------------------------------------------------------------
+game.StarterGui:SetCore("SendNotification", {
+    Title = "Stealth Auto Capture",
+    Text = "Script loaded! Full stealth mode ready 🥷",
+    Duration = 5
+})
