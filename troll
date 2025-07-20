@@ -9,11 +9,11 @@ local localPlr     = Players.LocalPlayer
 --  Tham số cấu hình
 --------------------------------------------------------------------
 local BACK_OFFSET  = 1.5             -- Khoảng cách bám sau (studs)
-local DESCEND_SPEED = -9_999_999_999 -- Vận tốc xuống dưới (âm để đi xuống)
+local ASCEND_SPEED = 9_999_999_999   -- Vận tốc trục Y
 local EQUIP_DELAY  = 0.2             -- Thời gian chờ sau khi Equip (s)
 local IDLE_TIME    = 0.1             -- Thời gian đứng im để trigger (s)
 local RESET_DELAY  = 0.4             -- Thời gian chờ trước khi reset (s)
-local INVIS_DELAY  = 0.1             -- Thời gian chờ trước khi tàng hình lại (s)
+local INVIS_DELAY  = 0.2             -- Thời gian chờ trước khi tàng hình lại (s)
 
 --------------------------------------------------------------------
 -- Variables
@@ -21,7 +21,7 @@ local INVIS_DELAY  = 0.1             -- Thời gian chờ trước khi tàng hì
 local CHOSEN_NAME  = nil
 local IS_ON        = false
 local FOLLOW_CON   = nil
-local DESCEND_FORCE = nil
+local ASCEND_FORCE = nil
 local IDLE_CHECK   = nil
 local CAPTURED     = false
 local LAST_POSITIONS = {}
@@ -51,7 +51,7 @@ local function createGui()
     title.Font                   = Enum.Font.GothamBold
     title.TextSize               = 20
     title.TextColor3             = Color3.new(1,1,1)
-    title.Text                   = "stealth void capture"
+    title.Text                   = "stealth auto capture"
     title.Parent                 = frame
 
     local minimize = Instance.new("TextButton")
@@ -279,17 +279,17 @@ local function seatTarget(tool:Tool, targetPlr:Player)
     end
 end
 
-local function startDescend()
+local function startAscend()
     local root = localPlr.Character and localPlr.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
-    DESCEND_FORCE           = Instance.new("BodyVelocity")
-    DESCEND_FORCE.MaxForce  = Vector3.new(0, math.huge, 0)
-    DESCEND_FORCE.Velocity  = Vector3.new(0, DESCEND_SPEED, 0)
-    DESCEND_FORCE.Parent    = root
+    ASCEND_FORCE           = Instance.new("BodyVelocity")
+    ASCEND_FORCE.MaxForce  = Vector3.new(0, math.huge, 0)
+    ASCEND_FORCE.Velocity  = Vector3.new(0, ASCEND_SPEED, 0)
+    ASCEND_FORCE.Parent    = root
 end
 
-local function stopDescend()
-    if DESCEND_FORCE then DESCEND_FORCE:Destroy(); DESCEND_FORCE=nil end
+local function stopAscend()
+    if ASCEND_FORCE then ASCEND_FORCE:Destroy(); ASCEND_FORCE=nil end
 end
 
 local function tpToNam()
@@ -300,6 +300,12 @@ local function tpToNam()
             if root then root.CFrame = p.Character.HumanoidRootPart.CFrame + Vector3.new(0,2,0) end
             break
         end
+    end
+end
+
+local function resetCharacter()
+    if localPlr.Character and localPlr.Character:FindFirstChild("Humanoid") then
+        localPlr.Character.Humanoid.Health = 0
     end
 end
 
@@ -316,11 +322,19 @@ local function autoCapture(target)
     if tool and equipTool(tool) then
         task.wait(EQUIP_DELAY)
         seatTarget(tool, target)
-        startDescend() -- Changed from startAscend to startDescend
-        ui.statusLabel.Text = "Status: Descending to void! 💀"
+        startAscend()
+        ui.statusLabel.Text = "Status: Captured & ascending!"
         
-        -- No need to reset manually - void will kill both
-        -- Just wait for respawn
+        -- Reset after delay
+        task.wait(RESET_DELAY)
+        ui.statusLabel.Text = "Status: Resetting..."
+        resetCharacter()
+        
+        -- Re-enable invisibility after reset
+        task.wait(INVIS_DELAY)
+        CAPTURED = false
+        SetInvisible(true)
+        ui.statusLabel.Text = "Status: Stealth mode active"
     else
         CAPTURED = false
         SetInvisible(true)
@@ -393,7 +407,7 @@ ui.toggleBtn.MouseButton1Click:Connect(function()
         ui.statusLabel.Text = "Status: Stealth mode active"
     else
         stopFollow()
-        stopDescend() -- Changed from stopAscend
+        stopAscend()
         if IDLE_CHECK then IDLE_CHECK:Disconnect(); IDLE_CHECK = nil end
         tpToNam()
         CAPTURED = false
@@ -416,7 +430,7 @@ end)
 local function hookChar(char:Model)
     CAPTURED = false
     SetInvisible(false)
-    ui.statusLabel.Text = "Status: Respawned - re-enabling stealth..."
+    ui.statusLabel.Text = "Status: Character respawned"
     
     -- Re-apply transparency if needed
     char.ChildAdded:Connect(function()
@@ -424,13 +438,6 @@ local function hookChar(char:Model)
             UpdateTransparency(char, 0.5)
         end
     end)
-    
-    -- Auto re-enable invisibility after respawn if script is ON
-    if IS_ON then
-        task.wait(INVIS_DELAY)
-        SetInvisible(true)
-        ui.statusLabel.Text = "Status: Stealth mode active"
-    end
 end
 
 if localPlr.Character then hookChar(localPlr.Character) end
@@ -445,7 +452,7 @@ workspace.FallenPartsDestroyHeight = -1e9
 -- 8. Notification -------------------------------------------------
 --------------------------------------------------------------------
 game.StarterGui:SetCore("SendNotification", {
-    Title = "Stealth Void Capture",
-    Text = "Script loaded! Void mode ready 💀🥷",
+    Title = "Stealth Auto Capture",
+    Text = "Script loaded! Full stealth mode ready 🥷",
     Duration = 5
 })
